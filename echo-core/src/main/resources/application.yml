@@ -1,0 +1,33 @@
+spring:
+  application:
+    name: echo-core
+  datasource:
+    url: jdbc:postgresql://localhost:5432/echo_memory
+    username: echo
+    password: echo_secret
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+  redis:
+    host: localhost
+    port: 6379
+
+langchain4j:
+  ollama:
+    base-url: http://localhost:11434
+    model-name: llama3.1:8b
+    timeout: 60s
+
+echo:
+  ollama:
+    model: llama3.1:8b
+  privacy:
+    local-only: true
+
+logging:
+  level:
+    io.echo: INFO
+    org.springframework: WARN
+    dev.langchain4j: INFO

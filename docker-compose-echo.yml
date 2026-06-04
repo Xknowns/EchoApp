@@ -1,0 +1,141 @@
+version: '3.8'
+
+services:
+  # PostgreSQL with pgvector extension
+  postgres:
+    image: ankane/pgvector:latest
+    container_name: echo-postgres
+    environment:
+      POSTGRES_USER: echo
+      POSTGRES_PASSWORD: echo_secret
+      POSTGRES_DB: echo_memory
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U echo"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - echo-network
+
+  # Ollama - Local LLM
+  ollama:
+    image: ollama/ollama:latest
+    container_name: echo-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - echo-network
+
+  # Redis - Cache and session store
+  redis:
+    image: redis:7-alpine
+    container_name: echo-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - echo-network
+
+  # MinIO - Object storage for embeddings and exports
+  minio:
+    image: minio/minio:latest
+    container_name: echo-minio
+    environment:
+      MINIO_ROOT_USER: echo
+      MINIO_ROOT_PASSWORD: echo_secret_key
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - echo-network
+
+  # ECHO Application
+  echo-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: echo-app
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/echo_memory
+      SPRING_DATASOURCE_USERNAME: echo
+      SPRING_DATASOURCE_PASSWORD: echo_secret
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: llama3.1:8b
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: echo
+      MINIO_SECRET_KEY: echo_secret_key
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+      minio:
+        condition: service_healthy
+    networks:
+      - echo-network
+
+  # Prometheus - Metrics
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: echo-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    networks:
+      - echo-network
+
+  # Grafana - Dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: echo-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - echo-network
+
+volumes:
+  postgres_data:
+  ollama_data:
+  redis_data:
+  minio_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  echo-network:
+    driver: bridge
